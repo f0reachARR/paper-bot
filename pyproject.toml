@@ -1,0 +1,23 @@
+[project]
+name = "paper-test"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "detectron2",
+    "discord-py>=2.4.0",
+    "google-generativeai>=0.8.3",
+    "huey>=2.5.2",
+    "magic-pdf[full]==0.8.1",
+    "markdown>=3.7",
+    "paddlepaddle==3.0.0b1",
+    "python-dotenv>=1.0.1",
+    "python-markdown-math>=0.8",
+]
+
+[tool.uv]
+environments = ["platform_system == 'Linux'"]
+
+[tool.uv.sources]
+detectron2 = { git = "https://github.com/facebookresearch/detectron2.git" }
