@@ -1,5 +1,6 @@
 from io import BytesIO
 import os
+import subprocess
 import time
 from typing import Optional
 from dotenv import load_dotenv
@@ -44,10 +45,34 @@ SUMMARY_SYSTEM_PROMPT = (
 
 SUMMARY_JA_PROMPT = "この論文を日本語でまとめて、解説してください。具体的な数値を含め、プレゼン資料20ページ程度の分量で解説したいです。"
 
-SUMMARY_EN_SLIDE_PROMPT = (
-    "この論文を英語でまとめて、20ページ程度の解説用のスライド資料をMarkdownで作成してください。"
-    + "箇条書きを用いるなど、スライド資料としてそのまま利用できる形式にしてください。"
-)
+SUMMARY_EN_SLIDE_PROMPT = """
+この論文を英語でまとめて、20ページ程度の解説用のスライド資料をMarkdownで作成してください。
+箇条書きを用いるなど、スライド資料としてそのまま利用できる形式にしてください。
+論文で用いられている画像を直接参照しても良いです。
+数式については、$で囲まれるLaTeX形式の数式をそのまま用いることができます。
+結果の提示などでは、わかりやすくなる場合に必要に応じてテーブルを利用してください。
+
+出力はSlidevで利用できるMarkdown形式が望ましいです。
+テーブルや箇条書き、コードブロック、画像も利用できます。
+例としては以下のようなMarkdownです。
+
+```markdown
+---
+theme: seriph
+title: "SlidevのMarkdown記法サンプル"
+download: false
+---
+
+# タイトルページ
+
+サブタイトル・著者名など
+
+---
+
+## 普通のページのタイトル
+
+普通のページの内容```
+"""
 
 SUMMARY_CONFIG = {
     "temperature": 1,
@@ -67,14 +92,13 @@ class PaperBot(discord.Client):
 
     def make_markdown(self, pdf_bytes: bytes):
         image_writer = DiskReaderWriter("./images")
-        image_dir = str(os.path.basename("./images"))
 
         jso_useful_key = {"_pdf_type": "", "model_list": []}
         pipe: UNIPipe = UNIPipe(pdf_bytes, jso_useful_key, image_writer)
         pipe.pipe_classify()
         pipe.pipe_analyze()
         pipe.pipe_parse()
-        md_content: str = pipe.pipe_mk_markdown(image_dir, drop_mode="none")
+        md_content: str = pipe.pipe_mk_markdown("./images", drop_mode="none")
 
         return md_content
 
@@ -183,6 +207,29 @@ class PaperBot(discord.Client):
         )
 
         return response.text
+
+    def make_slidev(self, md_content: str):
+        if md_content.startswith("```markdown"):
+            md_content = md_content.replace("```markdown", "")
+        with open("slides.md", "w") as f:
+            f.write(md_content)
+
+        subprocess.call(
+            [
+                "docker",
+                "run",
+                "-v",
+                f"{os.getcwd()}:/app",
+                "ghcr.io/f0reacharr/slidev",
+                "export",
+            ]
+        )
+
+        if not os.path.exists("slides-export.pdf"):
+            raise FileNotFoundError("Failed to generate slides")
+
+        with open("slides-export.pdf", "rb") as f:
+            return f.read()
 
     async def on_message(self, message: discord.Message):
         print(f"Message from {message.author}: {message.content}")
@@ -308,6 +355,25 @@ class PaperBot(discord.Client):
                 file=discord.File(
                     fp=BytesIO(html_content.encode("utf-8")), filename="result.html"
                 ),
+            )
+        # markdown to slidev
+        elif attachment.filename.endswith(".md") and message.content == "slidev":
+            md_bytes = await attachment.read()
+            print(f"Received Markdown file: {attachment.filename}")
+
+            await message.channel.send(
+                "Markdownファイルを受け付けました。Slidevに変換します。"
+            )
+
+            md_content = md_bytes.decode("utf-8")
+
+            slidev_pdf = await client.loop.run_in_executor(
+                None, self.make_slidev, md_content
+            )
+
+            await message.channel.send(
+                "Slidevに変換が完了しました。",
+                file=discord.File(fp=BytesIO(slidev_pdf), filename="slides.pdf"),
             )
 
 
